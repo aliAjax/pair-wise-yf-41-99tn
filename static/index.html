@@ -5,30 +5,199 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>地震台网事件编目与修订</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 2rem; color: #1f2937; }
-    main { max-width: 820px; margin: auto; }
-    pre { background: #f3f4f6; padding: 1rem; border-radius: 8px; overflow-x: auto; }
-    button { padding: .5rem .8rem; cursor: pointer; }
+    :root { --line:#e5e7eb; --muted:#6b7280; --accent:#2563eb; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0; color: #1f2937; background:#f9fafb; }
+    main { max-width: 1080px; margin: auto; padding: 1.5rem; }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1.05rem; margin-top: 2rem; }
+    .toolbar { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin-bottom:1rem; }
+    select, input, button { font: inherit; padding:.4rem .6rem; border:1px solid var(--line); border-radius:6px; background:#fff; }
+    button { cursor:pointer; background:var(--accent); color:#fff; border-color:var(--accent); }
+    button.secondary { background:#fff; color:#1f2937; }
+    table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); border-radius:8px; overflow:hidden; font-size:.88rem; }
+    th, td { text-align:left; padding:.55rem .7rem; border-bottom:1px solid var(--line); vertical-align:top; }
+    th { background:#f3f4f6; font-weight:600; }
+    tr:last-child td { border-bottom:none; }
+    .badge { display:inline-block; padding:.1rem .5rem; border-radius:999px; font-size:.75rem; font-weight:600; }
+    .s-published { background:#dcfce7; color:#166534; }
+    .s-revision_pending, .s-pending_review { background:#fef3c7; color:#92400e; }
+    .s-reviewed, .s-applied { background:#dbeafe; color:#1e40af; }
+    .s-candidate, .s-associated { background:#e5e7eb; color:#374151; }
+    .s-revised, .s-withdrawn, .s-withdrawn { background:#fee2e2; color:#991b1b; }
+    .muted { color:var(--muted); font-size:.8rem; }
+    .chain { list-style:none; padding:0; margin:0; }
+    .chain li { padding:.45rem .6rem; border-left:3px solid var(--line); margin-bottom:.3rem; background:#fff; border-radius:0 6px 6px 0; font-size:.85rem; }
+    .chain li.material { border-left-color:#d97706; }
+    .panel { background:#fff; border:1px solid var(--line); border-radius:8px; padding:1rem; margin-top:1rem; }
+    details summary { cursor:pointer; font-weight:600; }
+    pre { background:#f3f4f6; padding:.6rem; border-radius:6px; overflow-x:auto; font-size:.78rem; max-height:260px; }
+    .row2 { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+    @media (max-width: 760px) { .row2 { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
 <main>
   <h1>地震台网事件编目与修订</h1>
-  <p>这是最小演示页面。使用浏览器或 curl 调用 JSON API。</p>
-  <p><button onclick="checkHealth()">检查服务状态</button></p>
-  <pre id="result">等待操作</pre>
-  <h2>常用接口</h2>
-  <pre>GET  /health
-GET  /api/&lt;kind&gt;
-POST /api/&lt;kind&gt;
-GET  /api/entities/&lt;id&gt;
-POST /api/entities/&lt;id&gt;/actions</pre>
+  <div class="toolbar">
+    <label class="muted">当前身份
+      <select id="role">
+        <option value="admin">管理员</option>
+        <option value="station" selected>台站</option>
+        <option value="reviewer">审核员</option>
+        <option value="analyst">分析员</option>
+      </select>
+    </label>
+    <input id="userId" value="STA-1" size="10">
+    <button class="secondary" onclick="loadAll()">刷新</button>
+    <span id="health" class="muted"></span>
+  </div>
+
+  <h2>待复核修订（撤回的发布稿）</h2>
+  <table>
+    <thead><tr><th>事件</th><th>版本</th><th>台站</th><th>变更字段</th><th>报文编号</th><th>时间</th></tr></thead>
+    <tbody id="pendingBody"></tbody>
+  </table>
+
+  <h2>事件</h2>
+  <table>
+    <thead><tr><th>名称</th><th>状态</th><th>版本</th><th>震中</th><th>发震时刻</th><th>震级</th><th>审校</th><th>操作</th></tr></thead>
+    <tbody id="eventsBody"></tbody>
+  </table>
+
+  <h2>台站修正报文</h2>
+  <div class="panel">
+    <div class="toolbar">
+      <label>事件 <input id="corrEvent" size="22" placeholder="选择上方事件后自动填入"></label>
+      <label>台站编号 <input id="corrStation" value="STA-1" size="8"></label>
+      <label>报文编号 <input id="corrMessage" value="" size="10" placeholder="可空（历史）"></label>
+    </div>
+    <div class="toolbar">
+      <label>震中 <input id="corrLocation" size="12"></label>
+      <label>发震时刻 <input id="corrOrigin" size="22" placeholder="2026-01-01T00:00:00Z"></label>
+      <label>震级 <input id="corrMagnitude" type="number" step="0.1" size="6"></label>
+      <label>补波形通道 <input id="corrChannel" size="8" placeholder="如 BHZ"></label>
+      <button onclick="submitCorrection()">提交修正报文</button>
+    </div>
+    <pre id="corrResult" class="muted">填写后提交；仅补波形保留审校结论，震中/时刻/震级变化将撤回发布稿并进入待复核。</pre>
+  </div>
+
+  <h2>修订链与审计</h2>
+  <div id="detail" class="muted">点击事件行的「查看修订链」。</div>
 </main>
+
 <script>
-async function checkHealth() {
-  const response = await fetch('/health');
-  document.getElementById('result').textContent = JSON.stringify(await response.json(), null, 2);
+const STATUS_LABELS = {
+  candidate: '候选', associated: '已关联', reviewed: '已审核',
+  published: '已发布', revised: '已修订', revision_pending: '待复核',
+  withdrawn: '已撤回', applied: '已应用', pending_review: '待复核'
+};
+function badge(status) {
+  const cls = 's-' + status;
+  return `<span class="badge ${cls}">${STATUS_LABELS[status] || status}</span>`;
 }
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+function headers() {
+  return {'X-User-Id': document.getElementById('userId').value,
+          'X-Role': document.getElementById('role').value,
+          'Content-Type': 'application/json'};
+}
+async function api(path, options) {
+  const response = await fetch(path, options);
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || response.status);
+  return body;
+}
+async function loadAll() {
+  try {
+    const [health, events, pending] = await Promise.all([
+      fetch('/health').then(r => r.json()),
+      api('/api/events'),
+      api('/api/revisions?status=pending_review')
+    ]);
+    document.getElementById('health').textContent = '服务状态：' + health.status;
+    renderEvents(events.items || []);
+    renderPending(pending.items || []);
+  } catch (err) {
+    document.getElementById('health').textContent = '加载失败：' + err.message;
+  }
+}
+function renderEvents(events) {
+  document.getElementById('eventsBody').innerHTML = events.map(ev => `
+    <tr>
+      <td>${esc(ev.data.title)}<div class="muted">${esc(ev.id)}</div></td>
+      <td>${badge(ev.status)}</td>
+      <td>${ev.version}</td>
+      <td>${esc(ev.data.location)}</td>
+      <td>${esc(ev.data.origin_time)}</td>
+      <td>${esc(ev.data.magnitude ?? '')}</td>
+      <td>${esc(ev.data.reviewer ?? '')}</td>
+      <td><button class="secondary" onclick="showChain('${esc(ev.id)}')">查看修订链</button></td>
+    </tr>`).join('') || '<tr><td colspan="8" class="muted">暂无事件</td></tr>';
+}
+function renderPending(items) {
+  document.getElementById('pendingBody').innerHTML = items.map(r => `
+    <tr>
+      <td>${esc(r.event_id)}</td><td>${r.version}</td><td>${esc(r.station || '')}</td>
+      <td>${(r.changed_fields || []).map(esc).join('、')}</td>
+      <td>${esc(r.message_id || '（历史无编号）')}</td><td class="muted">${esc(r.created_at)}</td>
+    </tr>`).join('') || '<tr><td colspan="6" class="muted">没有待复核修订</td></tr>';
+}
+async function showChain(eventId) {
+  document.getElementById('corrEvent').value = eventId;
+  const [revisions, audit] = await Promise.all([
+    api(`/api/entities/${eventId}/revisions`),
+    api(`/api/audit?entity_id=${eventId}`)
+  ]);
+  const chain = (revisions.items || []).map(r => `
+    <li class="${r.material ? 'material' : ''}">
+      <strong>v${r.version}</strong> ${badge(r.revision_status)}
+      ${r.station ? '台站 ' + esc(r.station) : '编目流程'}
+      ${r.message_id ? '报文 ' + esc(r.message_id) : ''}
+      ${r.material ? '· 实质性变更：' + (r.changed_fields || []).map(esc).join('、') : ''}
+      <div class="muted">${esc(r.created_at)}${r.reviewer ? ' · 审核 ' + esc(r.reviewer) : ''}</div>
+    </li>`).join('');
+  const logs = (audit.items || []).map(a => `
+    <div>${esc(a.created_at)} ${esc(a.actor_role)} ${esc(a.actor_id)}：${esc(a.action)}
+      ${a.from_status ? esc(a.from_status) + ' → ' : ''}${esc(a.to_status)}</div>`).join('');
+  document.getElementById('detail').innerHTML = `
+    <div class="row2">
+      <div><strong>修订链</strong><ul class="chain">${chain}</ul></div>
+      <div><strong>审计时间线（不可改写）</strong><div class="panel">${logs || '<span class=muted>无</span>'}</div></div>
+    </div>`;
+}
+async function submitCorrection() {
+  const eventId = document.getElementById('corrEvent').value.trim();
+  if (!eventId) { alert('请先选择事件'); return; }
+  const correction = {
+    station: document.getElementById('corrStation').value.trim(),
+    message_id: document.getElementById('corrMessage').value.trim() || null,
+    location: document.getElementById('corrLocation').value.trim() || null,
+    origin_time: document.getElementById('corrOrigin').value.trim() || null,
+    magnitude: document.getElementById('corrMagnitude').value
+      ? Number(document.getElementById('corrMagnitude').value) : null
+  };
+  const channel = document.getElementById('corrChannel').value.trim();
+  if (channel) correction.waveforms = [{channel}];
+  Object.keys(correction).forEach(k => correction[k] === null && delete correction[k]);
+  try {
+    const result = await api(`/api/entities/${encodeURIComponent(eventId)}/corrections`, {
+      method: 'POST', headers: headers(), body: JSON.stringify(correction)
+    });
+    document.getElementById('corrResult').textContent =
+      `已落地：状态 ${result.status}，版本 ${result.version}\n` + JSON.stringify(result.data, null, 2);
+    await loadAll();
+    await showChain(eventId);
+  } catch (err) {
+    document.getElementById('corrResult').textContent = '提交失败：' + err.message;
+  }
+}
+document.getElementById('role').addEventListener('change', e => {
+  document.getElementById('userId').value =
+    {admin:'admin', station:'STA-1', reviewer:'R-1', analyst:'A-1'}[e.target.value];
+});
+loadAll();
 </script>
 </body>
 </html>
