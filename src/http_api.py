@@ -84,7 +84,11 @@ def create_handler(service, rules, static_dir):
                     with open(index, "r", encoding="utf-8") as handle:
                         return self._send_html(200, handle.read())
                 if parts == ["api", "audit"]:
-                    return self._send(200, {"items": service.audit_log()})
+                    query = parse_qs(parsed.query)
+                    entity_id = query.get("entity_id", [None])[0]
+                    return self._send(200, {"items": service.audit_log(entity_id)})
+                if len(parts) == 4 and parts[:2] == ["api", "entities"] and parts[3] == "revisions":
+                    return self._send(200, {"items": service.revisions(parts[2])})
                 if len(parts) == 3 and parts[:2] == ["api", "entities"]:
                     return self._send(200, service.get(parts[2]))
                 if len(parts) >= 2 and parts[0] == "api":
@@ -94,9 +98,10 @@ def create_handler(service, rules, static_dir):
                         return self._send(200, service.get(parts[2]))
                     query = parse_qs(parsed.query)
                     status = query.get("status", [None])[0]
+                    station = query.get("station", [None])[0]
                     return self._send(
                         200,
-                        {"items": service.list(parts[1], status=status)},
+                        {"items": service.list(parts[1], status=status, station=station)},
                     )
                 raise NotFoundError("not found")
             except Exception as exc:
@@ -107,6 +112,13 @@ def create_handler(service, rules, static_dir):
                 parsed = urlparse(self.path)
                 parts = [part for part in parsed.path.split("/") if part]
                 actor = self._actor()
+                if len(parts) == 4 and parts[:2] == ["api", "entities"] and parts[3] == "corrections":
+                    body = self._body()
+                    expected = body.pop("expected_version", None)
+                    return self._send(
+                        200,
+                        service.apply_correction(actor, parts[2], body, expected),
+                    )
                 if len(parts) == 3 and parts[:2] == ["api", "entities"]:
                     body = self._body()
                     action = body.pop("action", None)

@@ -54,7 +54,52 @@ class SQLiteRepository:
                     created_at TEXT NOT NULL,
                     PRIMARY KEY(actor_id, idem_key)
                 );
+                CREATE TABLE IF NOT EXISTS event_revisions (
+                    event_id TEXT NOT NULL,
+                    version INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    note TEXT,
+                    created_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY(event_id, version)
+                );
+                CREATE INDEX IF NOT EXISTS idx_event_revisions_event
+                    ON event_revisions(event_id, version);
+                -- 审计记录只能追加，不能改写
+                CREATE TRIGGER IF NOT EXISTS audit_log_no_update
+                    BEFORE UPDATE ON audit_log
+                BEGIN
+                    SELECT RAISE(ABORT, 'audit log is append-only');
+                END;
+                CREATE TRIGGER IF NOT EXISTS audit_log_no_delete
+                    BEFORE DELETE ON audit_log
+                BEGIN
+                    SELECT RAISE(ABORT, 'audit log is append-only');
+                END;
             """)
+            self._migrate(connection)
+
+    def _migrate(self, connection):
+        """升级既有数据库：历史事件没有稳定报文编号，也要能查到修订链。"""
+        version = int(connection.execute("PRAGMA user_version").fetchone()[0] or 0)
+        if version < 1:
+            rows = connection.execute("SELECT * FROM entities WHERE kind = 'event'").fetchall()
+            for row in rows:
+                exists = connection.execute(
+                    "SELECT 1 FROM event_revisions WHERE event_id = ? AND version = ?",
+                    (row["id"], row["version"]),
+                ).fetchone()
+                if not exists:
+                    connection.execute(
+                        "INSERT INTO event_revisions(event_id, version, status, data, note, created_by, created_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            row["id"], row["version"], row["status"], row["data"],
+                            "升级回填的历史版本", row["created_by"], row["updated_at"],
+                        ),
+                    )
+            connection.execute("PRAGMA user_version = 1")
 
     @staticmethod
     def _entity_from_row(row):
@@ -156,6 +201,41 @@ class SQLiteRepository:
                     utcnow(),
                 ),
             )
+
+    def append_event_revision(self, entity, note=None):
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO event_revisions(event_id, version, status, data, note, created_by, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    entity["id"],
+                    entity["version"],
+                    entity["status"],
+                    json.dumps(entity["data"], ensure_ascii=False, sort_keys=True),
+                    note,
+                    entity["created_by"],
+                    utcnow(),
+                ),
+            )
+
+    def list_event_revisions(self, event_id):
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM event_revisions WHERE event_id = ? ORDER BY version",
+                (event_id,),
+            ).fetchall()
+        return [
+            {
+                "event_id": row["event_id"],
+                "version": int(row["version"]),
+                "status": row["status"],
+                "data": json.loads(row["data"]),
+                "note": row["note"],
+                "created_by": row["created_by"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
 
     def list_audit(self, entity_id=None):
         with self._connect() as connection:
